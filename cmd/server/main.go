@@ -2,24 +2,18 @@ package main
 
 import (
 	"flag"
-	//"log"
+	"log"
 	"net/http"
-	//"github.com/joho/godotenv"
+
+	"github.com/Tmacphee13/NanachiGo/internal/db"
 	"github.com/Tmacphee13/NanachiGo/internal/login"
+	"github.com/joho/godotenv"
 )
 
 /*
 // testing authenticatio
 config := auth.GetAWSConfig()
 auth.TestAuthentication(config)
-
-// testing server initializaton
-srv := server.New()
-
-log.Println("Server running on :8080")
-if err := http.ListenAndServe(":8080", srv.Router()); err != nil {
-	log.Fatal(err)
-}
 
 // testing dynamodb connection
 db.ListDynamoDBTables()
@@ -28,12 +22,10 @@ db.ListDynamoDBTables()
 func main() {
 
 	// LoadEnv loads environment variables from the .env file
-	/*
-		err := godotenv.Load()
-		if err != nil {
-			log.Fatalf("Error loading .env file: %v", err)
-		}
-	*/
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file: %v", err)
+	}
 
 	flag.Parse()
 
@@ -41,8 +33,9 @@ func main() {
 	http.HandleFunc("/", home)
 	http.HandleFunc("/admin", admin)
 	http.HandleFunc("/api/login", login.Login)
-	//http.ListenAndServe(*addr, nil)
+	http.HandleFunc("/api/mindmap", db.GetAllMindmaps)
 	http.ListenAndServe(":3000", nil)
+	//http.ListenAndServe(*addr, nil)
 }
 
 // --------------------- Handler Funcs --------------------------//
@@ -54,8 +47,8 @@ func admin(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./public/admin.html")
 }
 
-/*
-func getMindMaps(w http.ResponseWriter, r *http.Request) {
+/* #------------ Imported Functions ------------#
+login.Login
 
-}
+
 */
