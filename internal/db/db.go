@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Tmacphee13/mindmap_go/internal/auth"
+	"github.com/Tmacphee13/NanachiGo/internal/auth"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 

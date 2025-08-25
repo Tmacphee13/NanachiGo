@@ -4,10 +4,6 @@ import (
 	"flag"
 	//"log"
 	"net/http"
-	//"net/http"
-	//"github.com/Tmacphee13/mindmap_go/internal/auth"
-	//"github.com/Tmacphee13/mindmap_go/internal/server"
-	//"github.com/Tmacphee13/mindmap_go/internal/db"
 	//"github.com/joho/godotenv"
 	"github.com/Tmacphee13/NanachiGo/internal/login"
 )
@@ -44,7 +40,7 @@ func main() {
 	// each route gets a handler that points to a function that handles that path
 	http.HandleFunc("/", home)
 	http.HandleFunc("/admin", admin)
-	http.HandleFunc("/api/login", login)
+	http.HandleFunc("/api/login", login.Login)
 	//http.ListenAndServe(*addr, nil)
 	http.ListenAndServe(":3000", nil)
 }
