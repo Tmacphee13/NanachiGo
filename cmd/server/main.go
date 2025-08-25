@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tmacphee13/NanachiGo/internal/db"
 	"github.com/Tmacphee13/NanachiGo/internal/login"
+	"github.com/Tmacphee13/NanachiGo/internal/utils"
 	"github.com/joho/godotenv"
 )
 
@@ -33,7 +34,8 @@ func main() {
 	http.HandleFunc("/", home)
 	http.HandleFunc("/admin", admin)
 	http.HandleFunc("/api/login", login.Login)
-	http.HandleFunc("/api/mindmap", db.GetAllMindmaps)
+	http.HandleFunc("/api/mindmaps", db.GetAllMindmaps)
+	http.HandleFunc("/api/upload", utils.UploadPaper)
 	http.ListenAndServe(":3000", nil)
 	//http.ListenAndServe(*addr, nil)
 }

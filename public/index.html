@@ -1,9 +1,534 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mind Map Library</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); transition: all 0.2s ease-in-out; }
+        .card-header { cursor: pointer; }
+        .mindmap-container { max-height: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; }
+        .mindmap-container.expanded { max-height: 800px; }
+        .node circle { cursor: pointer; stroke-width: 2.5px; }
+        .node text { font-size: 14px; fill: #374151; font-weight: 500; paint-order: stroke; stroke: #f8fafc; stroke-width: 3px; stroke-linecap: butt; stroke-linejoin: miter; }
+        .link { fill: none; stroke: #9ca3af; stroke-opacity: 0.6; stroke-width: 2px; }
+        #tooltip { position: absolute; text-align: left; padding: 10px; font-size: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; pointer-events: none; opacity: 0; transition: opacity 0.2s; max-width: 300px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); z-index: 10; }
+        #context-menu { position: absolute; z-index: 100; width: 200px; background-color: white; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); padding: 8px; display: none; }
+        #context-menu button { display: block; width: 100%; padding: 8px 12px; text-align: left; background: none; border: none; cursor: pointer; border-radius: 4px; font-size: 14px; }
+        #context-menu button:hover:not(:disabled) { background-color: #f3f4f6; }
+        #context-menu button:disabled { color: #9ca3af; cursor: not-allowed; }
+        .loader-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.8); display: flex; justify-content: center; align-items: center; z-index: 50; }
+        .spinner { border: 5px solid #f3f4f6; border-top: 5px solid #6366f1; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
-<body>
-        <h2>Message</h2>
-        <p>beeep boop beeep</p>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800">Research Paper Mind Maps</h1>
+            <p class="text-lg text-gray-600 mt-2">Interactive summaries of academic papers. Click a card to expand.</p>
+        </header>
+
+        <!-- Controls -->
+        <div class="flex justify-between items-center mb-6">
+            <div class="flex items-center space-x-4">
+                <label for="sort" class="text-sm font-medium text-gray-700">Sort by:</label>
+                <select id="sort" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                    <option value="date">Date (Newest First)</option>
+                    <option value="title">Title (A-Z)</option>
+                </select>
+            </div>
+             <a href="/admin" class="text-sm font-medium text-indigo-600 hover:text-indigo-800">Admin Login</a>
+        </div>
+
+        <!-- Mind Map List -->
+        <div id="mindmap-list" class="space-y-4">
+            <!-- Cards will be injected here -->
+        </div>
+    </div>
+
+    <div id="tooltip"></div>
+    <div id="context-menu">
+        <button id="redo-desc-btn">Redo node description</button>
+        <button id="remake-map-btn">Remake map from this point</button>
+        <button id="go-deeper-btn">Go deeper with this node</button>
+    </div>
+
+    <script>
+        let allMindmaps = [];
+        let isAdmin = false;
+        let activeNode = null; // Store the right-clicked node data
+        let activeMapId = null; // Store the map ID for the active node
+        let activeNodeElement = null; // Store the DOM element of the right-clicked node
+
+        document.addEventListener('DOMContentLoaded', () => {
+            isAdmin = sessionStorage.getItem('isAdminAuthenticated') === 'true';
+            fetchMindmaps();
+            document.getElementById('sort').addEventListener('change', renderMindmaps);
+            
+            // Hide context menu when clicking elsewhere
+            document.addEventListener('click', (e) => {
+                if (!document.getElementById('context-menu').contains(e.target)) {
+                    hideContextMenu();
+                }
+            });
+
+            // Add event listeners for context menu buttons
+            document.getElementById('redo-desc-btn').addEventListener('click', redoDescription);
+            document.getElementById('remake-map-btn').addEventListener('click', remakeSubtree);
+            document.getElementById('go-deeper-btn').addEventListener('click', goDeeper);
+        });
+
+        async function fetchMindmaps() {
+            try {
+                const response = await fetch('/api/mindmaps');
+                allMindmaps = await response.json();
+                renderMindmaps();
+            } catch (error) {
+                console.error('Failed to fetch mindmaps:', error);
+                document.getElementById('mindmap-list').innerHTML = '<p class="text-center text-red-500">Could not load mind maps.</p>';
+            }
+        }
+
+        function renderMindmaps() {
+            const sortBy = document.getElementById('sort').value;
+            let sortedMindmaps = [...allMindmaps];
+
+            if (sortBy === 'title') {
+                sortedMindmaps.sort((a, b) => a.title.localeCompare(b.title));
+            } else { // Default to date
+                sortedMindmaps.sort((a, b) => new Date(b.createdAt._seconds * 1000) - new Date(a.createdAt._seconds * 1000));
+            }
+
+            const listContainer = document.getElementById('mindmap-list');
+            listContainer.innerHTML = ''; // Clear existing list
+
+            if (sortedMindmaps.length === 0) {
+                 listContainer.innerHTML = '<p class="text-center text-gray-500">No mind maps have been generated yet.</p>';
+                 return;
+            }
+
+            sortedMindmaps.forEach(map => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <div class="card-header p-4" onclick="toggleCard('${map.id}')">
+                        <h2 class="text-xl font-bold text-gray-900">${map.title}</h2>
+                        <p class="text-sm text-gray-600 mt-1">${map.authors.join(', ')}</p>
+                        <p class="text-xs text-gray-400 mt-2">Published: ${map.date} | Filename: ${map.filename}</p>
+                    </div>
+                    <div id="container-${map.id}" class="mindmap-container relative border-t border-gray-200">
+                        <div id="map-${map.id}" class="w-full h-[600px]"></div>
+                        <div id="loader-${map.id}" style="display: none;" class="loader-overlay">
+                            <div class="spinner"></div>
+                        </div>
+                    </div>
+                `;
+                listContainer.appendChild(card);
+            });
+        }
+
+        function toggleCard(mapId) {
+            const container = document.getElementById(`container-${mapId}`);
+            const isExpanded = container.classList.contains('expanded');
+
+            if (!isExpanded) {
+                container.classList.add('expanded');
+                // Check if map is already rendered to prevent re-rendering
+                if (container.querySelector('svg')) return;
+                const mapData = allMindmaps.find(m => m.id === mapId).mindmapData;
+                renderD3Map(mapId, mapData);
+            } else {
+                container.classList.remove('expanded');
+            }
+        }
+        
+        function renderD3Map(mapId, data) {
+            const containerEl = document.getElementById(`map-${mapId}`);
+            const width = containerEl.clientWidth;
+            const height = containerEl.clientHeight;
+
+            const svg = d3.select(`#map-${mapId}`).append("svg")
+                .attr("viewBox", [0, 0, width, height]);
+
+            const g = svg.append("g");
+
+            svg.call(d3.zoom().on("zoom", (event) => {
+                g.attr("transform", event.transform);
+            }));
+
+            const tooltip = d3.select("#tooltip");
+            const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+
+            const simulation = d3.forceSimulation()
+                .force("link", d3.forceLink().id(d => d.id).distance(d => d.source.depth === 0 ? 150 : 100).strength(0.7))
+                .force("charge", d3.forceManyBody().strength(-600))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .on("tick", ticked);
+
+            let link = g.append("g").attr("class", "links").selectAll(".link");
+            let node = g.append("g").attr("class", "nodes").selectAll(".node");
+
+            const root = d3.hierarchy(data);
+            
+            if (root.children) {
+                root.children.forEach(collapse);
+            }
+            update();
+
+            function update() {
+                const nodes = root.descendants();
+                const links = root.links();
+
+                node = node.data(nodes, d => d.id);
+                node.exit().remove();
+
+                const nodeEnter = node.enter().append("g")
+                    .attr("class", "node")
+                    .call(drag(simulation))
+                    .on("click", click);
+
+                if (isAdmin) {
+                    nodeEnter.on('contextmenu', (event, d) => showContextMenu(event, d, mapId));
+                }
+
+                nodeEnter.append("circle")
+                    .attr("r", d => d.depth === 0 ? 25 : (d._children ? 18 : 15))
+                    .style("fill", d => d.depth === 0 ? '#1f2937' : colorScale(d.parent.data.name));
+                
+                nodeEnter.append("text")
+                    .text(d => d.data.name)
+                    .attr("x", d => d.depth === 0 ? 35 : 25)
+                    .attr("y", 5);
+
+                node = nodeEnter.merge(node);
+                
+                node.select('circle')
+                    .style("stroke", d => d._children ? "#374151" : "#9ca3af")
+                    .attr("r", d => d.depth === 0 ? 25 : (d._children ? 18 : 15));
+
+                node.on("mouseover", function(event, d) {
+                    d3.select(this).select('circle').transition().duration(200).attr('r', d.depth === 0 ? 30 : (d._children ? 23 : 20));
+                    tooltip.transition().duration(200).style("opacity", .95);
+                    
+                    let tooltipContent = `<div class="font-semibold text-gray-800">${d.data.name}</div>`;
+                    tooltipContent += `<div class="text-gray-600 mt-1">${d.data.tooltip}</div>`;
+                    if (d.data.section && d.data.pages) {
+                        tooltipContent += `<div class="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-200"><strong>Section:</strong> ${d.data.section}<br><strong>Pages:</strong> ${d.data.pages}</div>`;
+                    }
+
+                    tooltip.html(tooltipContent)
+                        .style("left", (event.pageX + 15) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                }).on("mouseout", function(event, d) {
+                    d3.select(this).select('circle').transition().duration(200).attr('r', d.depth === 0 ? 25 : (d._children ? 18 : 15));
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+
+                link = link.data(links, d => d.target.id);
+                link.exit().remove();
+                link = link.enter().append("line").attr("class", "link").merge(link);
+
+                simulation.nodes(nodes);
+                simulation.force("link").links(links);
+                simulation.alpha(1).restart();
+            }
+
+            function ticked() {
+                link.attr("x1", d => d.source.x).attr("y1", d => d.source.y).attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+                node.attr("transform", d => `translate(${d.x},${d.y})`);
+            }
+
+            function click(event, d) {
+                if (event.defaultPrevented) return;
+                if (d.children) {
+                    d._children = d.children;
+                    d.children = null;
+                } else {
+                    d.children = d._children;
+                    d._children = null;
+                }
+                update();
+            }
+
+            function collapse(d) {
+                if (d.children) {
+                    d._children = d.children;
+                    d._children.forEach(collapse);
+                    d.children = null;
+                }
+            }
+
+            function drag(simulation) {
+                function dragstarted(event, d) {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x; d.fy = d.y;
+                }
+                function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+                function dragended(event, d) {
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null; d.fy = null;
+                }
+                return d3.drag().on("start", dragstarted).on("drag", dragged).on("end", dragended);
+            }
+        }
+
+        // --- Admin Context Menu Functions ---
+
+        function showContextMenu(event, d, mapId) {
+            event.preventDefault();
+            const menu = document.getElementById('context-menu');
+            
+            const isLeaf = (!d.children && !d._children);
+            const maxDepth = 7; // Root is depth 0, so this allows for 8 levels total
+
+            // Configure "Remake map" button
+            const remakeBtn = document.getElementById('remake-map-btn');
+            remakeBtn.disabled = isLeaf || d.depth >= maxDepth;
+            if (remakeBtn.disabled) {
+                remakeBtn.title = isLeaf ? "Cannot remake from a leaf node." : "Maximum depth reached.";
+            } else {
+                remakeBtn.title = "Regenerate this branch of the mind map.";
+            }
+            
+            // Configure "Go deeper" button
+            const goDeeperBtn = document.getElementById('go-deeper-btn');
+            const canGoDeeper = isLeaf && d.depth < maxDepth;
+            goDeeperBtn.disabled = !canGoDeeper;
+            if (isLeaf) {
+                 goDeeperBtn.title = canGoDeeper ? "Generate the next level of nodes." : "Maximum depth reached.";
+            } else {
+                 goDeeperBtn.title = "Can only go deeper from a leaf node.";
+            }
+
+            menu.style.display = 'block';
+            menu.style.left = `${event.pageX}px`;
+            menu.style.top = `${event.pageY}px`;
+            activeNode = d;
+            activeMapId = mapId;
+            activeNodeElement = event.currentTarget; // Store the element
+        }
+
+        function hideContextMenu() {
+            const menu = document.getElementById('context-menu');
+            menu.style.display = 'none';
+            activeNode = null;
+            activeMapId = null;
+            activeNodeElement = null; // Clear the element
+        }
+
+        function getNodePath(d) {
+            // Create a path array (e.g., ['children', 0, 'children', 1]) to identify the node
+            return d.ancestors().reverse().slice(1).reduce((path, node) => {
+                const parent = node.parent;
+                if (parent) {
+                    // A node's children might be in .children or ._children if collapsed
+                    const children = parent.children || parent._children;
+                    if (children) {
+                        const index = children.indexOf(node);
+                        if (index > -1) {
+                            path.push('children', index);
+                        }
+                    }
+                }
+                return path;
+            }, []);
+        }
+
+        function updateNodeByPath(obj, path, updates) {
+            let current = obj;
+            // Traverse the path to find the parent of the target node
+            for (let i = 0; i < path.length - 1; i++) {
+                const key = path[i];
+                if (typeof current[key] === 'undefined') {
+                    return false; // Path does not exist
+                }
+                current = current[key];
+            }
+            // Update the target node
+            const finalKey = path[path.length - 1];
+            if (current && typeof current[finalKey] !== 'undefined') {
+                 Object.assign(current[finalKey], updates);
+                 return true;
+            }
+            return false;
+        }
+
+        async function redoDescription() {
+            if (!activeNode || !activeNodeElement) return;
+
+            const nodeToUpdate = activeNode;
+            const mapId = activeMapId;
+            const nodePath = getNodePath(nodeToUpdate);
+            const nodeElement = activeNodeElement; // Keep reference before hideContextMenu nulls it
+            hideContextMenu();
+
+            const circle = d3.select(nodeElement).select('circle');
+            const originalStroke = circle.style('stroke');
+            const originalStrokeWidth = circle.style('stroke-width');
+
+            // Add a class to control the animation loop
+            nodeElement.classList.add('is-updating');
+
+            function pulseAnimation() {
+                // Only continue if the class is still present
+                if (!nodeElement.classList.contains('is-updating')) {
+                    // Animation is done, restore original styles
+                    circle.transition().duration(200)
+                          .style('stroke', originalStroke)
+                          .style('stroke-width', originalStrokeWidth);
+                    return;
+                }
+
+                circle.transition()
+                    .duration(700)
+                    .style('stroke', '#6366f1') // Emphasize with a different color
+                    .style('stroke-width', '6px')
+                    .transition()
+                    .duration(700)
+                    .style('stroke', originalStroke)
+                    .style('stroke-width', originalStrokeWidth)
+                    .on('end', pulseAnimation); // Loop
+            }
+
+            pulseAnimation(); // Start the animation
+
+            try {
+                const response = await fetch(`/api/mindmaps/${mapId}/redo-description`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nodePath, nodeData: nodeToUpdate.data })
+                });
+
+                if (!response.ok) throw new Error('Failed to redo description.');
+
+                const result = await response.json();
+                
+                // Update local data
+                const mapData = allMindmaps.find(m => m.id === mapId).mindmapData;
+                updateNodeByPath(mapData, nodePath, { tooltip: result.newTooltip });
+
+                console.log('Description updated for node:', nodeToUpdate.data.name);
+
+            } catch (error) {
+                console.error('Error redoing description:', error);
+                alert('An error occurred while redoing the description.');
+            } finally {
+                // Stop the animation by removing the class
+                nodeElement.classList.remove('is-updating');
+            }
+        }
+
+        async function goDeeper() {
+            if (!activeNode || !activeNodeElement) return;
+
+            const nodeToUpdate = activeNode;
+            const mapId = activeMapId;
+            const nodePath = getNodePath(nodeToUpdate);
+            const nodeElement = activeNodeElement;
+            hideContextMenu();
+
+            // Start animation
+            nodeElement.classList.add('is-updating');
+            const circle = d3.select(nodeElement).select('circle');
+            const originalStroke = circle.style('stroke');
+            const originalStrokeWidth = circle.style('stroke-width');
+            
+            function pulseAnimation() {
+                if (!nodeElement.classList.contains('is-updating')) {
+                    circle.transition().duration(200).style('stroke', originalStroke).style('stroke-width', originalStrokeWidth);
+                    return;
+                }
+                circle.transition().duration(700).style('stroke', '#10b981').style('stroke-width', '6px')
+                    .transition().duration(700).style('stroke', originalStroke).style('stroke-width', originalStrokeWidth)
+                    .on('end', pulseAnimation);
+            }
+            pulseAnimation();
+
+
+            try {
+                const response = await fetch(`/api/mindmaps/${mapId}/go-deeper`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nodePath, nodeData: nodeToUpdate.data })
+                });
+
+                if (!response.ok) throw new Error(await response.text());
+
+                const result = await response.json();
+                
+                // Update local data
+                const mapData = allMindmaps.find(m => m.id === mapId).mindmapData;
+                const success = updateNodeByPath(mapData, nodePath, { children: result.newChildren || [] });
+
+                if (!success) throw new Error('Could not find node to update in local data.');
+
+                // Re-render the map
+                const containerEl = document.getElementById(`map-${mapId}`);
+                containerEl.innerHTML = ''; 
+                renderD3Map(mapId, mapData);
+                
+                console.log('Went deeper from node:', nodeToUpdate.data.name);
+
+            } catch (error) {
+                console.error('Error going deeper:', error);
+                alert(`An error occurred while going deeper: ${error.message}`);
+            } finally {
+                // Stop animation
+                nodeElement.classList.remove('is-updating');
+            }
+        }
+
+        async function remakeSubtree() {
+            if (!activeNode) return;
+
+            const nodeToUpdate = activeNode;
+            const mapId = activeMapId;
+            const nodePath = getNodePath(nodeToUpdate);
+            hideContextMenu();
+
+            const loader = document.getElementById(`loader-${mapId}`);
+            if (loader) loader.style.display = 'flex';
+
+            try {
+                const response = await fetch(`/api/mindmaps/${mapId}/remake-subtree`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nodePath, nodeData: nodeToUpdate.data })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Failed to remake subtree: ${errorText}`);
+                }
+
+                const result = await response.json();
+                
+                // Update the local data in allMindmaps
+                const mapData = allMindmaps.find(m => m.id === mapId).mindmapData;
+                const success = updateNodeByPath(mapData, nodePath, { children: result.newChildren || [] });
+
+                if (!success) throw new Error('Could not find node to update in local data.');
+
+                // Now re-render the whole map.
+                const containerEl = document.getElementById(`map-${mapId}`);
+                containerEl.innerHTML = ''; // Clear previous map
+                renderD3Map(mapId, mapData);
+                
+                console.log('Subtree remade for node:', nodeToUpdate.data.name);
+
+            } catch (error) {
+                console.error('Error remaking subtree:', error);
+                alert(`An error occurred while remaking the subtree. ${error.message}`);
+            } finally {
+                if (loader) loader.style.display = 'none';
+            }
+        }
+    </script>
 </body>
 </html>
