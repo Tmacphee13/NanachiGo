@@ -149,7 +149,7 @@
                 card.innerHTML = `
                     <div class="card-header p-4" onclick="toggleCard('${map.id}')">
                         <h2 class="text-xl font-bold text-gray-900">${map.title}</h2>
-                        <p class="text-sm text-gray-600 mt-1">${map.authors.join(', ')}</p>
+                        <p class="text-sm text-gray-600 mt-1">${(map.authors || []).join(', ')}</p>
                         <p class="text-xs text-gray-400 mt-2">Published: ${map.date} | Filename: ${map.filename}</p>
                     </div>
                     <div id="container-${map.id}" class="mindmap-container relative border-t border-gray-200">

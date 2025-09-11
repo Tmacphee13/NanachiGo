@@ -138,6 +138,8 @@ func UploadPaper(w http.ResponseWriter, r *http.Request) {
             http.Error(w, "failed to init gemini", http.StatusInternalServerError)
             return
         }
+        // Close Gemini client after we're done with both calls
+        defer gmClient.Close()
         metadata, err = ExtractMetadataGemini(ctx, gmClient, pdfText)
         if err != nil { log.Printf("metadata error: %v", err); http.Error(w, "failed to extract metadata", http.StatusInternalServerError); return }
         mindmapData, err = GenerateMindmapGemini(ctx, gmClient, pdfText)
@@ -149,6 +151,12 @@ func UploadPaper(w http.ResponseWriter, r *http.Request) {
 
     // Normalize fields from metadata
     title, _ := metadata["title"].(string)
+    title = strings.TrimSpace(title)
+    if title == "" {
+        // Fallback to filename without extension
+        base := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
+        title = base
+    }
     date, _ := metadata["date"].(string)
     var authors []string
     if arr, ok := metadata["authors"].([]interface{}); ok {
@@ -369,7 +377,6 @@ func NewGeminiClient(ctx context.Context) (*genai.Client, error) {
 }
 
 func CallGemini(ctx context.Context, client *genai.Client, prompt, systemPrompt string) (map[string]interface{}, error) {
-    defer client.Close()
     model := client.GenerativeModel("gemini-1.5-flash")
     // Combine system + user prompts to keep logic simple
     fullPrompt := systemPrompt + "\n\n" + prompt
@@ -568,6 +575,7 @@ Full Paper Text:
     case "gcp":
         gm, err := NewGeminiClient(r.Context())
         if err != nil { http.Error(w, "gemini init error", http.StatusInternalServerError); return }
+        defer gm.Close()
         result, err := CallGemini(r.Context(), gm, prompt, systemPrompt)
         if err != nil { http.Error(w, "LLM error", http.StatusInternalServerError); return }
         tooltip = valueAsString(result["tooltip"])
@@ -652,6 +660,7 @@ Full Paper Text:
     case "gcp":
         gm, err := NewGeminiClient(r.Context())
         if err != nil { http.Error(w, "gemini init error", http.StatusInternalServerError); return }
+        defer gm.Close()
         newTree, err = CallGemini(r.Context(), gm, prompt, systemPrompt)
         if err != nil { http.Error(w, "LLM error", http.StatusInternalServerError); return }
     default:
@@ -732,6 +741,7 @@ Full Paper Text:
     case "gcp":
         gm, err := NewGeminiClient(r.Context())
         if err != nil { http.Error(w, "gemini init error", http.StatusInternalServerError); return }
+        defer gm.Close()
         result, err = CallGemini(r.Context(), gm, prompt, systemPrompt)
         if err != nil { http.Error(w, "LLM error", http.StatusInternalServerError); return }
     default:

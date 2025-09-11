@@ -1,6 +1,7 @@
 package db
 
 import (
+    "encoding/json"
     "context"
     "fmt"
     "log"
@@ -152,9 +153,22 @@ func ListMindmapsGCP(ctx context.Context) ([]MindmapItem, error) {
 // tolerant of differing field types (e.g., Timestamp vs string).
 func snapshotToMindmapItem(snap *firestore.DocumentSnapshot) MindmapItem {
     data := snap.Data()
-    getString := func(key string) string {
-        v, ok := data[key]
-        if !ok || v == nil { return "" }
+
+    // Helper to fetch the first present value among several candidate keys
+    val := func(keys ...string) any {
+        for _, k := range keys {
+            if v, ok := data[k]; ok {
+                if v != nil {
+                    return v
+                }
+            }
+        }
+        return nil
+    }
+
+    getString := func(keys ...string) string {
+        v := val(keys...)
+        if v == nil { return "" }
         switch t := v.(type) {
         case string:
             return t
@@ -199,7 +213,7 @@ func snapshotToMindmapItem(snap *firestore.DocumentSnapshot) MindmapItem {
     }
 
     toStringSlice := func(v any) []string {
-        if v == nil { return nil }
+        if v == nil { return []string{} }
         switch arr := v.(type) {
         case []string:
             return arr
@@ -214,27 +228,42 @@ func snapshotToMindmapItem(snap *firestore.DocumentSnapshot) MindmapItem {
                 }
             }
             return out
+        case string:
+            return []string{arr}
         default:
-            return nil
+            return []string{}
         }
     }
 
     item := MindmapItem{
         ID:          snap.Ref.ID,
-        Filename:    getString("filename"),
-        Title:       getString("title"),
-        Authors:     toStringSlice(data["authors"]),
-        Date:        getString("date"),
-        PDFText:     getString("pdfText"),
-        CreatedAt:   toISOString(data["createdAt"]),
-        UpdatedAt:   toISOString(data["updatedAt"]),
+        Filename:    getString("filename", "Filename"),
+        Title:       getString("title", "Title"),
+        Authors:     toStringSlice(val("authors", "Authors")),
+        Date:        getString("date", "Date"),
+        PDFText:     getString("pdfText", "PDFText"),
+        CreatedAt:   toISOString(val("createdAt", "CreatedAt")),
+        UpdatedAt:   toISOString(val("updatedAt", "UpdatedAt")),
         MindmapData: nil,
     }
 
-    if md, ok := data["mindmapData"].(map[string]any); ok {
-        item.MindmapData = md
-    } else if md, ok := data["mindmapData"].(map[string]interface{}); ok {
-        item.MindmapData = md
+    // Mindmap data may be stored under either casing depending on writer
+    if mdv := val("mindmapData", "MindmapData"); mdv != nil {
+        switch md := mdv.(type) {
+        case map[string]interface{}:
+            item.MindmapData = md
+        case string:
+            // Try to parse JSON string if stored as string
+            var m map[string]interface{}
+            if err := json.Unmarshal([]byte(md), &m); err == nil {
+                item.MindmapData = m
+            }
+        case []byte:
+            var m map[string]interface{}
+            if err := json.Unmarshal(md, &m); err == nil {
+                item.MindmapData = m
+            }
+        }
     }
 
     return item
