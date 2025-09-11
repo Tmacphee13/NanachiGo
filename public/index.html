@@ -42,6 +42,11 @@
                     <option value="date">Date (Newest First)</option>
                     <option value="title">Title (A-Z)</option>
                 </select>
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm text-gray-700">Source:</span>
+                    <button id="btn-aws" class="px-2 py-1 text-sm rounded border border-gray-300">AWS</button>
+                    <button id="btn-gcp" class="px-2 py-1 text-sm rounded border border-gray-300">GCP</button>
+                </div>
             </div>
              <a href="/admin" class="text-sm font-medium text-indigo-600 hover:text-indigo-800">Admin Login</a>
         </div>
@@ -62,12 +67,14 @@
     <script>
         let allMindmaps = [];
         let isAdmin = false;
+        let platform = localStorage.getItem('platform') || 'aws';
         let activeNode = null; // Store the right-clicked node data
         let activeMapId = null; // Store the map ID for the active node
         let activeNodeElement = null; // Store the DOM element of the right-clicked node
 
         document.addEventListener('DOMContentLoaded', () => {
             isAdmin = sessionStorage.getItem('isAdminAuthenticated') === 'true';
+            initPlatformToggle();
             fetchMindmaps();
             document.getElementById('sort').addEventListener('change', renderMindmaps);
             
@@ -84,9 +91,23 @@
             document.getElementById('go-deeper-btn').addEventListener('click', goDeeper);
         });
 
+        function initPlatformToggle() {
+            const btnAWS = document.getElementById('btn-aws');
+            const btnGCP = document.getElementById('btn-gcp');
+            const setActive = () => {
+                btnAWS.classList.toggle('bg-indigo-600', platform === 'aws');
+                btnAWS.classList.toggle('text-white', platform === 'aws');
+                btnGCP.classList.toggle('bg-indigo-600', platform === 'gcp');
+                btnGCP.classList.toggle('text-white', platform === 'gcp');
+            };
+            setActive();
+            btnAWS.addEventListener('click', () => { platform = 'aws'; localStorage.setItem('platform','aws'); setActive(); fetchMindmaps(); });
+            btnGCP.addEventListener('click', () => { platform = 'gcp'; localStorage.setItem('platform','gcp'); setActive(); fetchMindmaps(); });
+        }
+
         async function fetchMindmaps() {
             try {
-                const response = await fetch('/api/mindmaps');
+                const response = await fetch(`/api/mindmaps?platform=${platform}`);
                 allMindmaps = await response.json();
                 renderMindmaps();
             } catch (error) {
@@ -102,7 +123,16 @@
             if (sortBy === 'title') {
                 sortedMindmaps.sort((a, b) => a.title.localeCompare(b.title));
             } else { // Default to date
-                sortedMindmaps.sort((a, b) => new Date(b.createdAt._seconds * 1000) - new Date(a.createdAt._seconds * 1000));
+                const toDate = (v) => {
+                    if (!v) return new Date(0);
+                    if (typeof v === 'string') return new Date(v);
+                    if (typeof v === 'object' && v !== null) {
+                        if (typeof v._seconds === 'number') return new Date(v._seconds * 1000);
+                        if (typeof v.seconds === 'number') return new Date(v.seconds * 1000);
+                    }
+                    return new Date(0);
+                };
+                sortedMindmaps.sort((a, b) => toDate(b.createdAt) - toDate(a.createdAt));
             }
 
             const listContainer = document.getElementById('mindmap-list');
@@ -399,7 +429,7 @@
             pulseAnimation(); // Start the animation
 
             try {
-                const response = await fetch(`/api/mindmaps/${mapId}/redo-description`, {
+                const response = await fetch(`/api/mindmaps/${mapId}/redo-description?platform=${platform}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ nodePath, nodeData: nodeToUpdate.data })
@@ -452,7 +482,7 @@
 
 
             try {
-                const response = await fetch(`/api/mindmaps/${mapId}/go-deeper`, {
+                const response = await fetch(`/api/mindmaps/${mapId}/go-deeper?platform=${platform}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ nodePath, nodeData: nodeToUpdate.data })
@@ -496,7 +526,7 @@
             if (loader) loader.style.display = 'flex';
 
             try {
-                const response = await fetch(`/api/mindmaps/${mapId}/remake-subtree`, {
+                const response = await fetch(`/api/mindmaps/${mapId}/remake-subtree?platform=${platform}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ nodePath, nodeData: nodeToUpdate.data })
