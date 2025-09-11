@@ -33,7 +33,14 @@
     <div id="upload-panel" class="hidden w-full max-w-2xl p-8 bg-white rounded-lg shadow-md">
         <div class="flex justify-between items-center mb-6">
              <h2 class="text-2xl font-bold text-gray-900">Admin Panel</h2>
-             <a href="/" class="text-sm font-medium text-indigo-600 hover:text-indigo-800">Back to Library</a>
+             <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm text-gray-700">Source:</span>
+                    <button id="btn-aws" class="px-2 py-1 text-sm rounded border border-gray-300">AWS</button>
+                    <button id="btn-gcp" class="px-2 py-1 text-sm rounded border border-gray-300">GCP</button>
+                </div>
+                <a href="/" class="text-sm font-medium text-indigo-600 hover:text-indigo-800">Back to Library</a>
+            </div>
         </div>
        
         <div class="p-6 mb-8 border border-gray-200 rounded-lg">
@@ -61,6 +68,7 @@
 
     <script>
         // Simple session storage check for auth persistence
+        let platform = localStorage.getItem('platform') || 'aws';
         if (sessionStorage.getItem('isAdminAuthenticated')) {
             showUploadPanel();
         }
@@ -68,7 +76,22 @@
         function showUploadPanel() {
             document.getElementById('login-form').classList.add('hidden');
             document.getElementById('upload-panel').classList.remove('hidden');
+            initPlatformToggle();
             fetchAndDisplayMindmaps(); // Fetch maps when panel is shown
+        }
+
+        function initPlatformToggle() {
+            const btnAWS = document.getElementById('btn-aws');
+            const btnGCP = document.getElementById('btn-gcp');
+            const setActive = () => {
+                btnAWS.classList.toggle('bg-indigo-600', platform === 'aws');
+                btnAWS.classList.toggle('text-white', platform === 'aws');
+                btnGCP.classList.toggle('bg-indigo-600', platform === 'gcp');
+                btnGCP.classList.toggle('text-white', platform === 'gcp');
+            };
+            setActive();
+            btnAWS.addEventListener('click', () => { platform = 'aws'; localStorage.setItem('platform','aws'); setActive(); fetchAndDisplayMindmaps(); });
+            btnGCP.addEventListener('click', () => { platform = 'gcp'; localStorage.setItem('platform','gcp'); setActive(); fetchAndDisplayMindmaps(); });
         }
 
         async function handleLogin(event) {
@@ -114,7 +137,7 @@
             buttonEl.classList.add('opacity-50');
 
             try {
-                const response = await fetch('/api/upload', {
+                const response = await fetch(`/api/upload?platform=${platform}`, {
                     method: 'POST',
                     body: formData
                 });
@@ -138,7 +161,7 @@
             listEl.innerHTML = '<p class="text-gray-500">Loading papers...</p>';
 
             try {
-                const response = await fetch('/api/mindmaps');
+                const response = await fetch(`/api/mindmaps?platform=${platform}`);
                 if (!response.ok) {
                     throw new Error('Failed to fetch mindmaps.');
                 }
@@ -157,7 +180,7 @@
                     mapEl.innerHTML = `
                         <div>
                             <p class="font-medium text-gray-800">${map.title}</p>
-                            <p class="text-sm text-gray-500">${map.filename} - Uploaded: ${new Date(map.createdAt.seconds * 1000).toLocaleDateString()}</p>
+                            <p class="text-sm text-gray-500">${map.filename} - Uploaded: ${(() => { const v = map.createdAt; if (!v) return ''; if (typeof v === 'string') return new Date(v).toLocaleDateString(); if (typeof v === 'object') { if (typeof v._seconds === 'number') return new Date(v._seconds * 1000).toLocaleDateString(); if (typeof v.seconds === 'number') return new Date(v.seconds * 1000).toLocaleDateString(); } return ''; })()}</p>
                         </div>
                         <button onclick="handleDelete('${map.id}')" class="px-3 py-1 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">Delete</button>
                     `;
@@ -175,7 +198,7 @@
             }
 
             try {
-                const response = await fetch(`/api/mindmaps/${mapId}`, {
+                const response = await fetch(`/api/mindmaps/${mapId}?platform=${platform}`, {
                     method: 'DELETE'
                 });
 
@@ -195,4 +218,3 @@
     </script>
 </body>
 </html>
-

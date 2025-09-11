@@ -1,11 +1,30 @@
 package login
 
 import (
-	"encoding/json"
-	"net/http"
+    "encoding/json"
+    "log"
+    "net/http"
+    "os"
+    "strings"
+    "sync"
 )
 
-const ADMINPASS = "admin"
+var (
+    adminPass     string
+    adminPassOnce sync.Once
+)
+
+func getAdminPass() string {
+    adminPassOnce.Do(func() {
+        v := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
+        if v == "" {
+            log.Printf("WARNING: ADMIN_PASSWORD not set; defaulting to 'admin'")
+            v = "admin"
+        }
+        adminPass = v
+    })
+    return adminPass
+}
 
 type LoginRequest struct {
 	Password string `json:"password"`
@@ -25,11 +44,11 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	var resp LoginResponse
-	if req.Password == ADMINPASS {
-		resp = LoginResponse{Success: true, Message: "Login successful"}
-		w.WriteHeader(http.StatusOK)
-	} else {
+    var resp LoginResponse
+    if req.Password == getAdminPass() {
+        resp = LoginResponse{Success: true, Message: "Login successful"}
+        w.WriteHeader(http.StatusOK)
+    } else {
 		resp = LoginResponse{Success: false, Message: "Invalid password"}
 		w.WriteHeader(http.StatusUnauthorized)
 	}
